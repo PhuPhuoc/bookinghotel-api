@@ -1,7 +1,14 @@
 using System.Reflection;
+using BookingHotel.Api.Middleware;
+using BookingHotel.Application;
+using BookingHotel.Infrastructure.Persistence;
+using JasperFx.Resources;
 using Mapster;
 using MapsterMapper;
 using Serilog;
+using Wolverine;
+using Wolverine.EntityFrameworkCore;
+using Wolverine.Postgresql;
 
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -27,6 +34,24 @@ try
     // ── project config
     builder.Services.AddSwaggerGen();
     builder.Services.AddControllers();
+    builder.Services.AddApplication();
+    builder.Services.AddPersistence(builder.Configuration);
+
+    builder.Host.UseResourceSetupOnStartup();
+    builder.Host.UseWolverine(opts =>
+    {
+      var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")!;
+      opts.Discovery.IncludeAssembly(typeof(BookingHotel.Application.DependencyInjection).Assembly);
+
+      // Outbox / Inbox
+      opts.PersistMessagesWithPostgresql(connectionString);
+
+      // EF Core integration
+      opts.UseEntityFrameworkCoreTransactions();
+
+      // Auto UnitOfWork
+      opts.Policies.AutoApplyTransactions();
+    });
   }
 
   var app = builder.Build();
@@ -36,11 +61,14 @@ try
       app.UseSwagger().UseSwaggerUI();
     }
 
-    // app.UseMiddleware<ExceptionHandlingMiddleware>();
-    // app.UseSerilogRequestLogging();
+    app.UseMiddleware<ExceptionHandlingMiddleware>();
+
+    app.UseSerilogRequestLogging();
 
     app.UseHttpsRedirection();
+
     app.MapControllers();
+
     app.MapGet("/", () => Results.Redirect("/swagger"));
 
     app.Run();

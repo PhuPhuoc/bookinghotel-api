@@ -1,0 +1,2 @@
+namespace BookingHotel.Application.Behaviors;
+

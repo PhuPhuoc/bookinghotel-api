@@ -21,17 +21,34 @@ MESSAGING_PROJ   = $(MESSAGING_DIR)/$(PREFIX).Infrastructure.Messaging.csproj
 # --------------------------------------------------------------------------
 # Package versions — all pinned explicitly and kept compatible with net8.0.
 # Rules of thumb used below:
-#   - All Microsoft.EntityFrameworkCore.* packages (core/design/tools) MUST
-#     share the exact same EF_VERSION, or `dotnet build` will throw version
-#     mismatch errors.
-#   - Npgsql.EntityFrameworkCore.PostgreSQL tracks EF Core's major.minor, so
-#     it's pinned to the same line as EF_VERSION.
-#   - All Microsoft.Extensions.* packages (Hosting/Configuration/DI/Options,
-#     including the Redis cache adapter) are kept on the 8.0.x line to match
-#     the ASP.NET Core 8 shared framework — mixing in 9.x here is the most
-#     common source of "Reference assembly conflict" errors on net8.0.
-#   - Microsoft.AspNetCore.Authentication.JwtBearer is a framework-specific
-#     package: keep it on 8.0.x to match the installed net8.0 runtime.
+#   - All Microsoft.EntityFrameworkCore.* packages (core/design/relational/
+#     tools) MUST share the exact same EF_VERSION, or `dotnet build` throws
+#     NU1605 downgrade / NU1107 conflict errors. This includes the EF.Design
+#     package referenced from the Api project (needed by `dotnet ef`), not
+#     just the one in Infrastructure.Persistence.
+#   - Npgsql.EntityFrameworkCore.PostgreSQL tracks EF Core's major line but
+#     is versioned independently by the Npgsql team — pin explicitly via
+#     NPGSQL_EF_VERSION, don't assume it equals EF_VERSION.
+#   - WolverineFx.Postgresql -> Weasel.Postgresql pulls in the raw Npgsql
+#     ADO.NET driver (currently resolves to 9.0.2+) independent of the EF
+#     provider. As of EF_VERSION=9.0.9 this is compatible; if you bump
+#     EF_VERSION, re-check `dotnet nuget why <Persist.csproj> Npgsql`.
+#   - Microsoft.CodeAnalysis.* (Common/Workspaces.Common) must be pinned to
+#     CODEANALYSIS_VERSION directly in Infrastructure.Persistence to resolve
+#     the conflict between EF.Design's Roslyn dependency (older) and
+#     Wolverine's JasperFx.RuntimeCompiler (newer). Pinning forces NuGet to
+#     use the newer version solution-wide instead of erroring out.
+#   - IMPORTANT: because EF_VERSION is on the 9.x line, EF Core's own
+#     dependencies force Microsoft.Extensions.Configuration.Abstractions
+#     (and transitively other Microsoft.Extensions.* packages) up to 9.x
+#     as well, even though the app still targets net8.0 and runs fine on
+#     the net8.0 shared framework. Do NOT pin these back to 8.0.x — that
+#     reintroduces the "Detected package downgrade" NU1605 error. This
+#     applies to every project that references Configuration.Abstractions
+#     directly, including optional modules (Redis/Elastic/Messaging).
+#   - Microsoft.AspNetCore.Authentication.JwtBearer stays on 8.0.x — this
+#     is an ASP.NET Core *framework* package tied to the net8.0 shared
+#     framework itself, unrelated to the EF Core / Extensions.* line above.
 #   - StackExchange.Redis, Serilog sinks, FluentValidation, Mapster, ErrorOr
 #     version independently of EF/ASP.NET Core — safe to bump on their own.
 #   - WolverineFx / DotNetCore.CAP / Elastic.Clients.Elasticsearch are 3rd
@@ -39,40 +56,45 @@ MESSAGING_PROJ   = $(MESSAGING_DIR)/$(PREFIX).Infrastructure.Messaging.csproj
 #     at time of writing — re-check nuget.org before bumping majors.
 # --------------------------------------------------------------------------
 
-# EF Core / Postgres (must all match EF_VERSION)
-EF_VERSION               = 8.0.11
-NPGSQL_VERSION           = 8.0.11
+# EF Core (must all match EF_VERSION exactly — core/design/relational/tools)
+EF_VERSION                  = 9.0.9
+NPGSQL_EF_VERSION           = 9.0.4
 
-# Microsoft.Extensions.* family (keep aligned to net8.0 shared framework)
-HOSTING_VERSION          = 8.0.1
-CONFIG_ABSTRACTIONS_VERSION = 8.0.0
-DI_ABSTRACTIONS_VERSION  = 8.0.2
-OPTIONS_CONFIG_VERSION   = 8.0.0
+# Roslyn (forced to align with Wolverine's JasperFx.RuntimeCompiler)
+CODEANALYSIS_VERSION        = 4.14.0
 
-# ASP.NET Core auth (framework-specific, must stay on 8.0.x)
-JWT_VERSION              = 8.0.11
+# Microsoft.Extensions.* family — forced to 9.x by EF_VERSION=9.0.9, still
+# net8.0-runtime compatible. Keep these in lockstep with EF_VERSION.
+CONFIG_ABSTRACTIONS_VERSION = 9.0.9
+HOSTING_VERSION             = 9.0.9
+DI_ABSTRACTIONS_VERSION     = 9.0.9
+OPTIONS_CONFIG_VERSION      = 9.0.9
+
+# ASP.NET Core auth (framework-specific, stays on 8.0.x — see note above)
+JWT_VERSION                 = 8.0.11
 
 # Logging
-SERILOG_ASPNET_VERSION   = 8.0.3
-SERILOG_CONSOLE_VERSION  = 6.0.0
+SERILOG_ASPNET_VERSION      = 8.0.3
+SERILOG_CONSOLE_VERSION     = 6.0.0
 
 # Application layer building blocks
-WOLVERINE_VERSION        = 5.0.0     # replaces MediatR — mediator + messaging
-WOLVERINE_EF_VERSION     = 5.0.0     # WolverineFx.EntityFrameworkCore, keep == WOLVERINE_VERSION
-FLUENTVALIDATION_VERSION = 11.9.2
-ERROROR_VERSION          = 2.0.1
-MAPSTER_VERSION          = 7.4.0
-MAPSTER_DI_VERSION       = 1.0.1
+WOLVERINE_VERSION           = 5.0.0     # replaces MediatR — mediator + messaging
+WOLVERINE_EF_VERSION        = 5.0.0     # WolverineFx.EntityFrameworkCore, keep == WOLVERINE_VERSION
+WOLVERINE_POSTGRES_VERSION  = 5.0.0
+FLUENTVALIDATION_VERSION    = 11.9.2
+ERROROR_VERSION             = 2.0.1
+MAPSTER_VERSION             = 7.4.0
+MAPSTER_DI_VERSION          = 1.0.1
 
 # Optional module: Redis
-REDIS_VERSION            = 2.8.24    # StackExchange.Redis, versions independently
-REDIS_CACHING_VERSION    = 8.0.11    # Microsoft.Extensions.Caching.StackExchangeRedis, keep 8.0.x
+REDIS_VERSION               = 2.8.24    # StackExchange.Redis, versions independently
+REDIS_CACHING_VERSION       = 9.0.9     # Microsoft.Extensions.Caching.StackExchangeRedis, track EF_VERSION line
 
 # Optional module: Elasticsearch
-ELASTIC_VERSION          = 8.15.10   # Elastic.Clients.Elasticsearch (new official client, not NEST)
+ELASTIC_VERSION             = 8.15.10   # Elastic.Clients.Elasticsearch (new official client, not NEST)
 
 # Optional module: Messaging (CAP, used as outbox + event bus over RabbitMQ)
-CAP_VERSION              = 8.3.5     # DotNetCore.CAP core + .RabbitMQ + .PostgreSql must match
+CAP_VERSION                 = 8.3.5     # DotNetCore.CAP core + .RabbitMQ + .PostgreSql must match
 
 .DEFAULT_GOAL := run
 
@@ -179,8 +201,11 @@ add-packages:
 	dotnet add $(APPLICATION_PROJ) package Mapster --version $(MAPSTER_VERSION)
 	dotnet add $(APPLICATION_PROJ) package Mapster.DependencyInjection --version $(MAPSTER_DI_VERSION)
 	@echo "Installing Infrastructure.Persistence packages..."
+	dotnet add $(PERSIST_PROJ) package Microsoft.CodeAnalysis.Common --version $(CODEANALYSIS_VERSION)
+	dotnet add $(PERSIST_PROJ) package Microsoft.CodeAnalysis.Workspaces.Common --version $(CODEANALYSIS_VERSION)
 	dotnet add $(PERSIST_PROJ) package Microsoft.EntityFrameworkCore --version $(EF_VERSION)
-	dotnet add $(PERSIST_PROJ) package Npgsql.EntityFrameworkCore.PostgreSQL --version $(NPGSQL_VERSION)
+	dotnet add $(PERSIST_PROJ) package Microsoft.EntityFrameworkCore.Relational --version $(EF_VERSION)
+	dotnet add $(PERSIST_PROJ) package Npgsql.EntityFrameworkCore.PostgreSQL --version $(NPGSQL_EF_VERSION)
 	dotnet add $(PERSIST_PROJ) package Microsoft.EntityFrameworkCore.Tools --version $(EF_VERSION)
 	dotnet add $(PERSIST_PROJ) package Microsoft.Extensions.Configuration.Abstractions --version $(CONFIG_ABSTRACTIONS_VERSION)
 	dotnet add $(PERSIST_PROJ) package Microsoft.Extensions.Hosting.Abstractions --version $(HOSTING_VERSION)
@@ -191,6 +216,8 @@ add-packages:
 	dotnet add $(API_PROJ) package Serilog.Sinks.Console --version $(SERILOG_CONSOLE_VERSION)
 	dotnet add $(API_PROJ) package Microsoft.AspNetCore.Authentication.JwtBearer --version $(JWT_VERSION)
 	dotnet add $(API_PROJ) package Microsoft.EntityFrameworkCore.Design --version $(EF_VERSION)
+	dotnet add $(API_PROJ) package Microsoft.Extensions.Configuration.Abstractions --version $(CONFIG_ABSTRACTIONS_VERSION)
+	dotnet add $(API_PROJ) package WolverineFx.Postgresql --version $(WOLVERINE_POSTGRES_VERSION)
 	@echo "All base packages installed"
 
 # Full setup from scratch
